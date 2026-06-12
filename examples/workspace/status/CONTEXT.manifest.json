@@ -1,0 +1,16 @@
+{
+  "schema": "ecp/1",
+  "owner": "system",
+  "lifecycle": "active",
+  "linked_objects": [],
+  "linked_skills": [],
+  "linked_receipts": [],
+  "verification_rules": [],
+  "promotion_rules": [],
+  "id": "status",
+  "purpose": "Dynamic per-session state; always after the cache breakpoint.",
+  "load_priority": "task",
+  "token_budget": 800,
+  "read_policy": "open",
+  "write_policy": "lease"
+}

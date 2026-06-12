@@ -1,0 +1,16 @@
+{
+  "schema": "ecp/1",
+  "owner": "system",
+  "lifecycle": "archived",
+  "linked_objects": [],
+  "linked_skills": [],
+  "linked_receipts": [],
+  "verification_rules": [],
+  "promotion_rules": [],
+  "id": "archive",
+  "purpose": "Cold storage; pointer-only, retrievals logged.",
+  "load_priority": "pointer",
+  "token_budget": 0,
+  "read_policy": "logged",
+  "write_policy": "open"
+}

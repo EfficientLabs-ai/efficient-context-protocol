@@ -1,0 +1,17 @@
+{
+  "schema": "ecp/1",
+  "owner": "maintainer",
+  "lifecycle": "promoted",
+  "linked_objects": [],
+  "linked_skills": [],
+  "linked_receipts": [],
+  "verification_rules": [],
+  "promotion_rules": [],
+  "id": "doctrine",
+  "purpose": "Stable rules and reference (cache-safe; bodies load on demand).",
+  "load_priority": "cached",
+  "token_budget": 2000,
+  "read_policy": "open",
+  "write_policy": "gated",
+  "expose_files": true
+}

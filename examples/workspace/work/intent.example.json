@@ -1,0 +1,8 @@
+{
+  "task": "Refactor the greeting module so the output is deterministic.",
+  "role": "bounded-session worker",
+  "refs": ["work/TASK.md", "status/STATE.md", "doctrine/STYLE.md"],
+  "acceptance": "tests green; no nondeterministic output remains",
+  "budget": 3000,
+  "doctrine_pointers": ["doctrine/PIPELINE.md"]
+}

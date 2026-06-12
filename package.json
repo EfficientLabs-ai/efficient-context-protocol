@@ -1,0 +1,15 @@
+{
+  "name": "efficient-context-protocol",
+  "version": "0.1.0",
+  "description": "ECP — a vendor-neutral file architecture protocol for AI agents: machine-readable context manifests, a context compiler, concurrency leases, compaction-resistant ledgers, and a visual read model.",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "ecp": "bin/ecp.js" },
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node test/run.js",
+    "bench": "node scripts/bench.js"
+  },
+  "keywords": ["ai-agents", "context-engineering", "llm", "manifests", "context-compiler", "icm", "agent-harness"],
+  "files": ["bin", "src", "docs", "examples", "README.md", "LICENSE"]
+}
