@@ -153,3 +153,18 @@ against real compaction events). Schemas are versioned (`ecp/1`); breaking
 changes bump the version.
 
 MIT © Efficient Labs
+
+## Deterministic install and audit
+
+ECP is launch-critical infrastructure, so local development and CI use the Node version pinned in `.nvmrc`.
+
+```bash
+nvm use
+npm ci
+npm run preflight
+npm test
+npm run bench
+npm run audit
+```
+
+`npm ci` is the required install path. The committed `package-lock.json` is the dependency reproducibility source for CI and security audit evidence.
