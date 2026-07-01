@@ -10,6 +10,7 @@ import { compilePacket, writePacket, disclosureScan } from '../src/compile.js';
 import { takeLease, releaseLease, checkLeases } from '../src/lease.js';
 import { buildReadModel } from '../src/readmodel.js';
 import { extract, capture, inject } from '../src/ledger.js';
+import { satisfiesEngines } from '../scripts/preflight-node.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXAMPLE = path.join(HERE, '..', 'examples', 'workspace');
@@ -136,6 +137,22 @@ t('ledger capture/inject round-trip; inject silent off-compact; fail-open on jun
   assert.equal(inject({ session_id: 's1', source: 'startup' }, ledger), null, 'silent on normal startup');
   assert.equal(capture({ session_id: 's2', transcript_path: '/nonexistent' }, ledger), null, 'missing transcript tolerated');
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ── node preflight ──
+t('preflight: exact .nvmrc version satisfies the declared engines range', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8'));
+  const nvmrc = fs.readFileSync(path.join(HERE, '..', '.nvmrc'), 'utf8').trim();
+  assert.ok(satisfiesEngines(nvmrc, pkg.engines.node), `.nvmrc ${nvmrc} must satisfy engines ${pkg.engines.node}`);
+});
+t('preflight: newer in-range patch and minor pass', () => {
+  assert.ok(satisfiesEngines('22.22.4', '>=22.22.3 <23'));
+  assert.ok(satisfiesEngines('22.23.0', '>=22.22.3 <23'));
+});
+t('preflight: out-of-range majors and older patches fail', () => {
+  assert.equal(satisfiesEngines('23.0.0', '>=22.22.3 <23'), false, 'next major refused');
+  assert.equal(satisfiesEngines('21.9.9', '>=22.22.3 <23'), false, 'older major refused');
+  assert.equal(satisfiesEngines('22.22.2', '>=22.22.3 <23'), false, 'older patch refused');
 });
 
 // ── plane discovery ignores noise ──
