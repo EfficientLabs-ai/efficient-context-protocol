@@ -61,7 +61,10 @@ jobs:
             }
             const number = pr.number;
             const title = (pr.title || '').trim();
-            const body = pr.body || '';
+            // strip HTML comments BEFORE any rule runs — template placeholders like
+            // "Closes #N" living inside <!-- --> must never satisfy linked-context
+            // or section rules on behalf of the author
+            const body = (pr.body || '').replace(/<!--[\\s\\S]*?-->/g, '');
             const headRef = (pr.head && pr.head.ref) || '';
             const isDraft = pr.draft === true;
 
