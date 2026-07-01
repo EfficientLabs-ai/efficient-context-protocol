@@ -1,0 +1,276 @@
+name: PR Discipline
+
+# Enforces the Efficient Labs GitHub Operating Standard (the "OpenClaw" PR standard)
+# on every pull request: required H1 sections, linked context, clean titles,
+# allowed branch prefixes, and visible proof/receipts before a PR leaves draft.
+#
+# Uses pull_request_target so the check has a token that can post a sticky review
+# comment even on PRs from forks. No code from the PR is checked out or executed —
+# only the PR metadata (title, body, branch, draft state) is read via the event
+# payload, so this is safe under pull_request_target.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: pr-discipline-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-discipline:
+    name: Enforce PR discipline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate PR against the operating standard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // ---- Canonical configuration (Efficient Labs GitHub Operating Standard) ----
+            const REQUIRED_SECTIONS = [
+              'Summary',
+              'Problem',
+              'Solution',
+              'User / Project Impact',
+              'Linked Context',
+              'Proof / Receipts',
+              'Merge Readiness',
+            ];
+            const ALLOWED_PREFIXES = [
+              'feat/', 'fix/', 'docs/', 'chore/',
+              'refactor/', 'test/', 'ci/', 'security/', 'release/',
+              // Machine-provenance prefixes: the Codex cloud integration and the SEIF
+              // pipeline name their own branches. NEVER rename such a branch to "fix"
+              // it — renaming the head of an open PR makes GitHub auto-close the PR
+              // (head_ref_deleted; this destroyed efficientlabs-web#35 on 2026-07-01).
+              'codex/', 'seif/',
+            ];
+            const VAGUE_TITLE = /^(update|fix|changes|wip|misc|stuff|test)\.?$/i;
+            const MIN_TITLE_LEN = 10;
+            const STICKY_MARKER = '<!-- pr-discipline-sticky -->';
+
+            // ---- Read the PR from the event payload (robust to missing fields) ----
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull_request in payload; nothing to evaluate.');
+              return;
+            }
+            const number = pr.number;
+            const title = (pr.title || '').trim();
+            const body = pr.body || '';
+            const headRef = (pr.head && pr.head.ref) || '';
+            const isDraft = pr.draft === true;
+
+            const CHECK = ':white_check_mark:';
+            const CROSS = ':x:';
+            const WARN = ':warning:';
+            const SKIP = ':fast_forward:';
+
+            // results: { rule, status: 'pass'|'fail'|'warn'|'skip', detail }
+            const results = [];
+            const add = (rule, status, detail) => results.push({ rule, status, detail });
+
+            // ---- Helpers ----------------------------------------------------------
+            // Parse H1 sections ("# Heading") into a map of normalized-name -> content.
+            const normalize = (s) =>
+              s.toLowerCase().replace(/\s+/g, ' ').replace(/[#:]/g, '').trim();
+
+            function parseSections(text) {
+              const sections = {};
+              const lines = text.split(/\r?\n/);
+              let current = null;
+              let buf = [];
+              const flush = () => {
+                if (current !== null) sections[current] = buf.join('\n');
+              };
+              for (const line of lines) {
+                // H1 only: a single leading '#', not '##'+. Allow trailing text after.
+                const m = line.match(/^#\s+(.+?)\s*$/);
+                if (m && !/^##/.test(line)) {
+                  flush();
+                  current = normalize(m[1]);
+                  buf = [];
+                } else if (current !== null) {
+                  buf.push(line);
+                }
+              }
+              flush();
+              return sections;
+            }
+
+            const sections = parseSections(body);
+            const sectionFor = (name) => {
+              const key = normalize(name);
+              return key in sections ? sections[key] : null;
+            };
+
+            // A line counts as a "filled bullet" if it is a bullet/checkbox whose
+            // content beyond the marker (and beyond any leading "Label:") is non-empty.
+            function hasFilledBullet(content) {
+              if (!content) return false;
+              for (const raw of content.split(/\r?\n/)) {
+                const line = raw.trim();
+                if (!line) continue;
+                // Match "- ", "* ", "+ ", optionally a checkbox "[ ]" / "[x]".
+                const m = line.match(/^[-*+]\s+(?:\[[ xX]\]\s+)?(.*)$/);
+                if (!m) continue;
+                let rest = m[1].trim();
+                if (!rest) continue;
+                // Strip a leading "Label:" prefix (e.g. "Tests run:") and re-check.
+                const afterLabel = rest.replace(/^[A-Za-z0-9 ./-]+:\s*/, '').trim();
+                if (afterLabel.length > 0) return true;
+              }
+              return false;
+            }
+
+            // ---- Rule 1: required H1 sections present ------------------------------
+            const missingSections = REQUIRED_SECTIONS.filter((s) => sectionFor(s) === null);
+            if (missingSections.length === 0) {
+              add('Required PR sections', 'pass', 'All required H1 sections present.');
+            } else {
+              add(
+                'Required PR sections',
+                'fail',
+                `Missing section(s): ${missingSections.map((s) => `\`# ${s}\``).join(', ')}.`,
+              );
+            }
+
+            // ---- Rule 2: linked issue / context -----------------------------------
+            // Pass if EITHER a "#<num>" reference exists, OR a Closes/Fixes/Refs
+            // keyword references something, OR the Linked Context section has content.
+            const hasIssueRef = /#\d+/.test(body);
+            const hasLinkKeyword =
+              /\b(close[sd]?|fix(e[sd])?|resolve[sd]?|ref(s|erence[sd]?)?)\b/i.test(body);
+            const linkedContext = sectionFor('Linked Context');
+            const linkedContextFilled =
+              linkedContext !== null && linkedContext.replace(/\s+/g, '').length > 0;
+            if (hasIssueRef || hasLinkKeyword || linkedContextFilled) {
+              add('Linked context', 'pass', 'PR references an issue / ADR / doc / decision.');
+            } else {
+              add(
+                'Linked context',
+                'fail',
+                'No `#<num>`, no Closes/Fixes/Refs keyword, and the `# Linked Context` section is empty.',
+              );
+            }
+
+            // ---- Rule 3: title quality (WARN only) --------------------------------
+            const titleVague = VAGUE_TITLE.test(title) || title.length < MIN_TITLE_LEN;
+            if (titleVague) {
+              add(
+                'PR title clarity',
+                'warn',
+                `Title "${title}" is vague or too short — use a clear, descriptive title (>= ${MIN_TITLE_LEN} chars).`,
+              );
+            } else {
+              add('PR title clarity', 'pass', 'Title is clear and descriptive.');
+            }
+
+            // ---- Rule 4: allowed branch prefix ------------------------------------
+            const prefixOk = ALLOWED_PREFIXES.some((p) => headRef.startsWith(p));
+            if (prefixOk) {
+              add('Branch naming', 'pass', `Branch \`${headRef}\` uses an allowed prefix.`);
+            } else {
+              add(
+                'Branch naming',
+                'fail',
+                `Branch \`${headRef || '(unknown)'}\` must start with one of: ${ALLOWED_PREFIXES.map((p) => `\`${p}\``).join(' ')}.`,
+              );
+            }
+
+            // ---- Rule 5: proof / receipts (only when ready for review) ------------
+            if (isDraft) {
+              add(
+                'Proof / Receipts',
+                'skip',
+                'PR is a draft — proof check deferred until ready for review.',
+              );
+            } else {
+              const proof = sectionFor('Proof / Receipts');
+              if (hasFilledBullet(proof)) {
+                add('Proof / Receipts', 'pass', 'Proof/receipts section has filled bullets.');
+              } else {
+                add(
+                  'Proof / Receipts',
+                  'fail',
+                  'PR is ready for review but `# Proof / Receipts` has no filled bullets (all blank).',
+                );
+              }
+            }
+
+            // ---- Build the sticky comment -----------------------------------------
+            const icon = (s) =>
+              s === 'pass' ? CHECK : s === 'fail' ? CROSS : s === 'warn' ? WARN : SKIP;
+            const failCount = results.filter((r) => r.status === 'fail').length;
+            const warnCount = results.filter((r) => r.status === 'warn').length;
+
+            let header;
+            if (isDraft) {
+              header =
+                `${SKIP} **Draft PR** — discipline checks are advisory only. ` +
+                `Fix anything below before marking ready for review.`;
+            } else if (failCount === 0) {
+              header = `${CHECK} **PR discipline passed.**` +
+                (warnCount ? ` (${warnCount} warning${warnCount === 1 ? '' : 's'})` : '');
+            } else {
+              header =
+                `${CROSS} **PR discipline failed** — ${failCount} blocking issue` +
+                `${failCount === 1 ? '' : 's'} must be resolved before merge.`;
+            }
+
+            const rows = results
+              .map((r) => `| ${icon(r.status)} | **${r.rule}** | ${r.detail} |`)
+              .join('\n');
+
+            const body_md = [
+              STICKY_MARKER,
+              '## PR Discipline',
+              '',
+              header,
+              '',
+              '| | Rule | Detail |',
+              '| :-: | :-- | :-- |',
+              rows,
+              '',
+              '<sub>Efficient Labs GitHub Operating Standard — required sections, linked context, ' +
+                'clean titles, allowed branch prefixes, and proof before merge. ' +
+                'Draft PRs are warned, not blocked.</sub>',
+            ].join('\n');
+
+            // ---- Upsert the single sticky comment ---------------------------------
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.body && c.body.includes(STICKY_MARKER),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: body_md,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: number,
+                body: body_md,
+              });
+            }
+
+            // ---- Fail the check if any blocking rule failed (drafts: never fail) --
+            if (!isDraft && failCount > 0) {
+              core.setFailed(
+                `PR discipline failed: ${failCount} blocking issue(s). See the PR Discipline comment.`,
+              );
+            }
