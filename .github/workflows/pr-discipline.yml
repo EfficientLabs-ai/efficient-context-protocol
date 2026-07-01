@@ -11,7 +11,7 @@ name: PR Discipline
 
 on:
   pull_request_target:
-    types: [opened, edited, synchronize, ready_for_review]
+    types: [opened, reopened, edited, synchronize, ready_for_review]
 
 permissions:
   pull-requests: write
@@ -143,8 +143,11 @@ jobs:
             // Pass if EITHER a "#<num>" reference exists, OR a Closes/Fixes/Refs
             // keyword references something, OR the Linked Context section has content.
             const hasIssueRef = /#\d+/.test(body);
+            // a link keyword only counts when it points at a real target (issue/PR
+            // number, ADR id, or URL) — a bare "fix"/"refs" word in prose must not
+            // satisfy the linked-context rule
             const hasLinkKeyword =
-              /\b(close[sd]?|fix(e[sd])?|resolve[sd]?|ref(s|erence[sd]?)?)\b/i.test(body);
+              /\b(close[sd]?|fix(e[sd])?|resolve[sd]?|ref(s|erence[sd]?)?)\b[:\s]+(\S*#\d+|ADR-\d+|https?:\/\/\S+)/i.test(body);
             const linkedContext = sectionFor('Linked Context');
             const linkedContextFilled =
               linkedContext !== null && linkedContext.replace(/\s+/g, '').length > 0;
